@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ReactFlow, Background, Controls, ReactFlowProvider,
+  useNodesState, useEdgesState,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -25,6 +26,12 @@ export default function App() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const readyFiredRef = useRef(false);
 
+  // Use React Flow's controlled-state hooks so drag changes persist across
+  // re-renders. Without these, every parent re-render would reset positions
+  // to the auto-layout output.
+  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
+
   // Wire postMessage protocol. Use a ref guard so StrictMode's double-effect
   // doesn't fire `explore:ready` twice during dev.
   useEffect(() => {
@@ -39,16 +46,19 @@ export default function App() {
     return off;
   }, []);
 
-  // Convert composite state → React Flow nodes + edges; hide descendants of
-  // any collapsed group; mark the collapsed groups themselves so StoreNode
-  // renders the ▶ indicator. Then auto-layout.
-  const { nodes, edges } = useMemo(() => {
-    if (!state) return { nodes: [], edges: [] };
+  // (Re)generate nodes + edges whenever the composite state OR the set of
+  // collapsed groups changes. This DOES reset any manual drag positions on
+  // the affected branch, which is acceptable for v1.
+  useEffect(() => {
+    if (!state) {
+      setNodes([]);
+      setEdges([]);
+      return;
+    }
     const raw = stateToReactFlow(state);
 
     const isHidden = (n: any) => {
       const path: string[] = n.data?.path ?? [];
-      // hide if any STRICT ancestor (not the node itself) is collapsed
       for (let i = 1; i < path.length; i++) {
         if (collapsed.has(path.slice(0, i).join('.'))) return true;
       }
@@ -66,8 +76,9 @@ export default function App() {
       (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
     );
     const laidNodes = applyLayout(visibleNodes as any, visibleEdges as any);
-    return { nodes: laidNodes, edges: visibleEdges };
-  }, [state, collapsed]);
+    setNodes(laidNodes as any);
+    setEdges(visibleEdges as any);
+  }, [state, collapsed, setNodes, setEdges]);
 
   const handleNodeClick = useCallback((_: any, node: any) => {
     const payload = {
@@ -109,6 +120,8 @@ export default function App() {
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           nodeTypes={NODE_TYPES}
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
