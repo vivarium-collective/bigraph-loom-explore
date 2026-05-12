@@ -75,6 +75,14 @@ export default function App() {
           nodeTypes={NODE_TYPES}
           onNodeClick={handleNodeClick}
           fitView
+          /* Read-only viewer: nodes can be dragged (move) and clicked
+             (inspect), but new edges cannot be created and existing ones
+             cannot be reconnected. */
+          nodesDraggable
+          nodesConnectable={false}
+          edgesReconnectable={false}
+          connectOnClick={false}
+          deleteKeyCode={null}
         >
           <Background />
           <Controls />
