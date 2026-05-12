@@ -21,12 +21,17 @@ const NODE_TYPES = { process: ProcessNode, store: StoreNode };
 export default function App() {
   const [state, setState] = useState<any | null>(decodeUrlComposite());
   const [selection, setSelection] = useState<Omit<ExploreInspectMsg, 'type'> | null>(null);
+  // Collapsed group-node ids — children of these nodes are filtered out of the graph.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const readyFiredRef = useRef(false);
 
   // Wire postMessage protocol. Use a ref guard so StrictMode's double-effect
   // doesn't fire `explore:ready` twice during dev.
   useEffect(() => {
-    const off = onCompositeLoad((msg) => setState(msg.state));
+    const off = onCompositeLoad((msg) => {
+      setState(msg.state);
+      setCollapsed(new Set());  // reset folding when a new composite loads
+    });
     if (!readyFiredRef.current) {
       readyFiredRef.current = true;
       postReady();
@@ -34,14 +39,35 @@ export default function App() {
     return off;
   }, []);
 
-  // Convert composite state → React Flow nodes + edges, then auto-layout.
-  // applyLayout(nodes, edges) returns Node[] (not {nodes, edges}).
+  // Convert composite state → React Flow nodes + edges; hide descendants of
+  // any collapsed group; mark the collapsed groups themselves so StoreNode
+  // renders the ▶ indicator. Then auto-layout.
   const { nodes, edges } = useMemo(() => {
     if (!state) return { nodes: [], edges: [] };
     const raw = stateToReactFlow(state);
-    const laidNodes = applyLayout(raw.nodes as any, raw.edges as any);
-    return { nodes: laidNodes, edges: raw.edges };
-  }, [state]);
+
+    const isHidden = (n: any) => {
+      const path: string[] = n.data?.path ?? [];
+      // hide if any STRICT ancestor (not the node itself) is collapsed
+      for (let i = 1; i < path.length; i++) {
+        if (collapsed.has(path.slice(0, i).join('.'))) return true;
+      }
+      return false;
+    };
+
+    const visibleNodes = raw.nodes.filter((n) => !isHidden(n)).map((n) => {
+      if (collapsed.has(n.id)) {
+        return { ...n, data: { ...n.data, isCollapsed: true } as any };
+      }
+      return n;
+    });
+    const visibleIds = new Set(visibleNodes.map((n) => n.id));
+    const visibleEdges = raw.edges.filter(
+      (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
+    );
+    const laidNodes = applyLayout(visibleNodes as any, visibleEdges as any);
+    return { nodes: laidNodes, edges: visibleEdges };
+  }, [state, collapsed]);
 
   const handleNodeClick = useCallback((_: any, node: any) => {
     const payload = {
@@ -51,6 +77,17 @@ export default function App() {
     };
     setSelection(payload);
     postInspect(payload);
+  }, []);
+
+  const handleNodeDoubleClick = useCallback((_: any, node: any) => {
+    // Only group stores (synthesized container nodes) can be collapsed.
+    if (!(node.data as any)?.isGroup) return;
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(node.id)) next.delete(node.id);
+      else next.add(node.id);
+      return next;
+    });
   }, []);
 
   if (!state) {
@@ -74,11 +111,12 @@ export default function App() {
           edges={edges}
           nodeTypes={NODE_TYPES}
           onNodeClick={handleNodeClick}
+          onNodeDoubleClick={handleNodeDoubleClick}
           fitView
-          /* Read-only viewer: nodes can be dragged (move) and clicked
-             (inspect), but new edges cannot be created and existing ones
-             cannot be reconnected. */
-          nodesDraggable
+          /* Read-only viewer: pan + zoom + click-to-inspect only.
+             Node positions are locked (use the auto-layout from layout.ts);
+             no new edges, no reconnects, no delete. */
+          nodesDraggable={false}
           nodesConnectable={false}
           edgesReconnectable={false}
           connectOnClick={false}
