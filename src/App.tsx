@@ -113,10 +113,10 @@ export default function App() {
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
           fitView
-          /* Read-only viewer: pan + zoom + click-to-inspect only.
-             Node positions are locked (use the auto-layout from layout.ts);
-             no new edges, no reconnects, no delete. */
-          nodesDraggable={false}
+          /* Read-only viewer for wiring/structure, but users CAN rearrange
+             node positions by dragging individual nodes. What's forbidden:
+             new edges, edge reconnects, and any delete. */
+          nodesDraggable
           nodesConnectable={false}
           edgesReconnectable={false}
           connectOnClick={false}
