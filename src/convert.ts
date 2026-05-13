@@ -15,6 +15,7 @@ type RFEdge = {
   targetHandle?: string;
   label?: string;
   animated?: boolean;
+  style?: Record<string, string | number>;
   data?: { edgeType: 'input' | 'output' | 'bidirectional' | 'place' };
 };
 
@@ -89,6 +90,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           targetHandle: port,
           label: port,
           animated: false,
+          style: { strokeDasharray: '5,5' },  // wire convention: dashed
           data: { edgeType: 'input' },
         });
       }
@@ -103,6 +105,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           targetHandle: undefined,
           label: port,
           animated: false,
+          style: { strokeDasharray: '5,5' },  // wire convention: dashed
           data: { edgeType: 'output' },
         });
       }
@@ -154,6 +157,8 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           id: `place--${id}--${childId}`,
           source: id,
           target: childId,
+          animated: false,
+          style: { strokeWidth: 2.5 },  // place convention: thick solid
           data: { edgeType: 'place' },
         });
       }
