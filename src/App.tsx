@@ -11,8 +11,9 @@ import StoreNode from './nodes/StoreNode';
 import { applyLayout } from './layout';
 import { stateToReactFlow } from './convert';
 import { InspectorPanel } from './panels/InspectorPanel';
+import { EmitContext } from './EmitContext';
 import {
-  postReady, postInspect, onCompositeLoad, decodeUrlComposite,
+  postReady, postInspect, postEmitChanged, onCompositeLoad, decodeUrlComposite,
 } from './api';
 import type { ExploreInspectMsg } from './api';
 
@@ -24,6 +25,8 @@ export default function App() {
   const [selection, setSelection] = useState<Omit<ExploreInspectMsg, 'type'> | null>(null);
   // Collapsed group-node ids — children of these nodes are filtered out of the graph.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Explicit-emit store paths (joined by '/'). Descendants inherit emission.
+  const [emitSet, setEmitSet] = useState<Set<string>>(new Set());
   const readyFiredRef = useRef(false);
 
   // Use React Flow's controlled-state hooks so drag changes persist across
@@ -38,6 +41,7 @@ export default function App() {
     const off = onCompositeLoad((msg) => {
       setState(msg.state);
       setCollapsed(new Set());  // reset folding when a new composite loads
+      setEmitSet(new Set());    // reset emit selection when a new composite loads
     });
     if (!readyFiredRef.current) {
       readyFiredRef.current = true;
@@ -101,6 +105,19 @@ export default function App() {
     });
   }, []);
 
+  const handleEmitToggle = useCallback((path: string[], on: boolean) => {
+    setEmitSet((prev) => {
+      const next = new Set(prev);
+      const key = path.join('/');
+      if (on) next.add(key);
+      else next.delete(key);
+      // Notify the embedding dashboard. Send a sorted list for deterministic
+      // ordering on the receiving side.
+      postEmitChanged(Array.from(next).sort());
+      return next;
+    });
+  }, []);
+
   if (!state) {
     return (
       <div style={{ padding: 24, fontFamily: 'system-ui' }}>
@@ -116,30 +133,36 @@ export default function App() {
 
   return (
     <ReactFlowProvider>
-      <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={NODE_TYPES}
-          onNodeClick={handleNodeClick}
-          onNodeDoubleClick={handleNodeDoubleClick}
-          fitView
-          /* Read-only viewer for wiring/structure, but users CAN rearrange
-             node positions by dragging individual nodes. What's forbidden:
-             new edges, edge reconnects, and any delete. */
-          nodesDraggable
-          nodesConnectable={false}
-          edgesReconnectable={false}
-          connectOnClick={false}
-          deleteKeyCode={null}
-        >
-          <Background />
-          <Controls />
-        </ReactFlow>
-        <InspectorPanel selection={selection} />
-      </div>
+      <EmitContext.Provider value={emitSet}>
+        <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={NODE_TYPES}
+            onNodeClick={handleNodeClick}
+            onNodeDoubleClick={handleNodeDoubleClick}
+            fitView
+            /* Read-only viewer for wiring/structure, but users CAN rearrange
+               node positions by dragging individual nodes. What's forbidden:
+               new edges, edge reconnects, and any delete. */
+            nodesDraggable
+            nodesConnectable={false}
+            edgesReconnectable={false}
+            connectOnClick={false}
+            deleteKeyCode={null}
+          >
+            <Background />
+            <Controls />
+          </ReactFlow>
+          <InspectorPanel
+            selection={selection}
+            emitSet={emitSet}
+            onEmitToggle={handleEmitToggle}
+          />
+        </div>
+      </EmitContext.Provider>
     </ReactFlowProvider>
   );
 }

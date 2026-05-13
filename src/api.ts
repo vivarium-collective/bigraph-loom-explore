@@ -15,12 +15,24 @@ export type ExploreInspectMsg = {
   details: Record<string, unknown>;
 };
 
+export type ExploreEmitChangedMsg = {
+  type: 'explore:emit-changed';
+  paths: string[];  // explicit-emit path strings, joined by '/'
+};
+
 export function postReady() {
   window.parent.postMessage({ type: 'explore:ready' } as ExploreReadyMsg, '*');
 }
 
 export function postInspect(payload: Omit<ExploreInspectMsg, 'type'>) {
   window.parent.postMessage({ type: 'explore:inspect', ...payload }, '*');
+}
+
+export function postEmitChanged(paths: string[]) {
+  window.parent.postMessage(
+    { type: 'explore:emit-changed', paths } as ExploreEmitChangedMsg,
+    '*',
+  );
 }
 
 export function onCompositeLoad(handler: (msg: CompositeLoadMsg) => void) {
