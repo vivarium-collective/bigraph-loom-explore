@@ -63,6 +63,23 @@ export default function App() {
     return off;
   }, []);
 
+  // Popout fallback: if the URL has ?id=<ref>, fetch state directly from the
+  // server. This avoids any postMessage race with the opener — the popup
+  // self-hydrates as soon as the API responds. The opener's postMessage
+  // (which arrives later) is harmless because the state is already loaded.
+  useEffect(() => {
+    if (!compositeId || state) return;
+    let cancelled = false;
+    fetch('/api/composite-state?ref=' + encodeURIComponent(compositeId))
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.state && !state) setState(data.state);
+      })
+      .catch(() => { /* fall through to postMessage path */ });
+    return () => { cancelled = true; };
+  }, [compositeId, state]);
+
   // (Re)generate nodes + edges whenever the composite state OR the set of
   // collapsed groups changes. This DOES reset any manual drag positions on
   // the affected branch, which is acceptable for v1.
