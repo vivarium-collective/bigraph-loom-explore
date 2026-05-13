@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Reset module cache between tests to get a fresh import (important for the
 // postMessage spy tests which import after spying).
@@ -8,23 +8,49 @@ beforeEach(() => {
 });
 
 describe('postMessage protocol', () => {
-  it('postReady fires the parent message', async () => {
-    const spy = vi.spyOn(window.parent, 'postMessage');
+  // The api helpers post to window.opener (popup mode) or window.parent (iframe
+  // mode). In jsdom both default to `window` itself, which the helper treats as
+  // "no embedding target" and silently no-ops. Install a mock opener so the
+  // spy captures the call.
+  const mockOpener = { postMessage: vi.fn() };
+
+  beforeEach(() => {
+    mockOpener.postMessage.mockReset();
+    Object.defineProperty(window, 'opener', {
+      value: mockOpener,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'opener', {
+      value: null,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it('postReady fires the embedding-target message', async () => {
     const { postReady } = await import('../api');
     postReady();
-    expect(spy).toHaveBeenCalledWith({ type: 'explore:ready' }, '*');
-    spy.mockRestore();
+    expect(mockOpener.postMessage).toHaveBeenCalledWith({ type: 'explore:ready' }, '*');
   });
 
   it('postInspect includes path, kind, details', async () => {
-    const spy = vi.spyOn(window.parent, 'postMessage');
     const { postInspect } = await import('../api');
     postInspect({ path: ['a', 'b'], kind: 'store', details: { foo: 1 } });
-    expect(spy).toHaveBeenCalledWith(
+    expect(mockOpener.postMessage).toHaveBeenCalledWith(
       { type: 'explore:inspect', path: ['a', 'b'], kind: 'store', details: { foo: 1 } },
       '*'
     );
-    spy.mockRestore();
+  });
+
+  it('postReady is a no-op when there is no embedding target', async () => {
+    Object.defineProperty(window, 'opener', { value: null, configurable: true, writable: true });
+    const { postReady } = await import('../api');
+    expect(() => postReady()).not.toThrow();
+    expect(mockOpener.postMessage).not.toHaveBeenCalled();
   });
 
   it('onCompositeLoad invokes handler for matching messages', async () => {

@@ -20,16 +20,32 @@ export type ExploreEmitChangedMsg = {
   paths: string[];  // explicit-emit path strings, joined by '/'
 };
 
+/** Pick the right postMessage target for the embedding context.
+ *
+ * - Embedded iframe: messages go to `window.parent` (the embedding page).
+ * - Pop-out window: `window.parent === window` (no parent frame); the dashboard
+ *   that opened us is at `window.opener`. Without this branch the popup posts
+ *   to itself and the dashboard never sees `explore:ready` → no state arrives.
+ */
+function _embeddingTarget(): WindowProxy | null {
+  if (window.opener && window.opener !== window) return window.opener;
+  if (window.parent && window.parent !== window) return window.parent;
+  return null;
+}
+
 export function postReady() {
-  window.parent.postMessage({ type: 'explore:ready' } as ExploreReadyMsg, '*');
+  const target = _embeddingTarget();
+  if (target) target.postMessage({ type: 'explore:ready' } as ExploreReadyMsg, '*');
 }
 
 export function postInspect(payload: Omit<ExploreInspectMsg, 'type'>) {
-  window.parent.postMessage({ type: 'explore:inspect', ...payload }, '*');
+  const target = _embeddingTarget();
+  if (target) target.postMessage({ type: 'explore:inspect', ...payload }, '*');
 }
 
 export function postEmitChanged(paths: string[]) {
-  window.parent.postMessage(
+  const target = _embeddingTarget();
+  if (target) target.postMessage(
     { type: 'explore:emit-changed', paths } as ExploreEmitChangedMsg,
     '*',
   );
