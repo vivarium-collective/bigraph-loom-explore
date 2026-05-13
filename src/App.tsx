@@ -152,11 +152,21 @@ export default function App() {
     return (
       <div style={{ padding: 24, fontFamily: 'system-ui' }}>
         <h3>bigraph-loom-explore</h3>
-        <p style={{ color: '#666' }}>Waiting for composite data…</p>
-        <p style={{ color: '#888', fontSize: 12 }}>
-          Embed this page and post a <code>composite:load</code> message,
-          or open with <code>?composite=&lt;base64-json&gt;</code>.
+        <p style={{ color: '#666' }}>
+          {compositeId ? `Loading composite "${compositeId}"…` : 'Waiting for composite data…'}
         </p>
+        {compositeId && (
+          <p style={{ color: '#888', fontSize: 12 }}>
+            Fetching from <code>/api/composite-state?ref={compositeId}</code>.
+            If this hangs, the dashboard server may be unreachable.
+          </p>
+        )}
+        {!compositeId && (
+          <p style={{ color: '#888', fontSize: 12 }}>
+            Embed this page and post a <code>composite:load</code> message,
+            or open with <code>?id=&lt;ref&gt;</code>.
+          </p>
+        )}
       </div>
     );
   }
