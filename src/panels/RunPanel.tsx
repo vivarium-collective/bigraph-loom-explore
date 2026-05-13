@@ -15,6 +15,10 @@ interface RunResult {
   simulation_id?: string;
   steps?: number;
   results?: Record<string, any[]>;
+  /** Path-keyed dict of rendered HTML, one per Visualization step in the
+   *  composite. Produced by `pbg_superpowers.visualization.render_results`
+   *  on the server side. */
+  viz_html?: Record<string, { html: string }>;
   error?: string;
 }
 
@@ -236,6 +240,24 @@ export function RunPanel(props: RunPanelProps) {
             </tbody>
           </table>
         </>
+      )}
+
+      {result?.viz_html && Object.keys(result.viz_html).length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h4>Visualizations</h4>
+          {Object.entries(result.viz_html).map(([path, payload]) => (
+            <div key={path} style={{ marginBottom: 12, border: '1px solid #e5e7eb', borderRadius: 4 }}>
+              <div style={{ padding: '6px 10px', background: '#f3f4f6', fontFamily: 'monospace', fontSize: 12 }}>
+                {path}
+              </div>
+              <iframe
+                srcDoc={(payload as { html: string }).html || '<p>No HTML</p>'}
+                style={{ width: '100%', height: 320, border: 0 }}
+                sandbox="allow-scripts"
+              />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
