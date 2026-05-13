@@ -20,6 +20,10 @@ interface RunResult {
    *  on the server side. */
   viz_html?: Record<string, { html: string }>;
   error?: string;
+  /** Full Python traceback from the subprocess that ran the composite.
+   *  Present when error === "run failed" — surfaces the underlying cause
+   *  (e.g. missing dylib, schema mismatch, process exception). */
+  traceback?: string;
 }
 
 /** One observable row: expandable; when expanded shows a step navigator +
@@ -210,7 +214,20 @@ export function RunPanel(props: RunPanelProps) {
       )}
 
       {result?.error && (
-        <p style={{ color: '#c00' }}>Run failed: {result.error}</p>
+        <div style={{ color: '#c00', marginTop: 8 }}>
+          <p style={{ margin: 0 }}><strong>Run failed:</strong> {result.error}</p>
+          {result.traceback && (
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ cursor: 'pointer', color: '#7f1d1d' }}>Show traceback</summary>
+              <pre style={{
+                background: '#fef2f2', border: '1px solid #fecaca',
+                padding: 10, fontSize: 11, lineHeight: 1.4,
+                overflow: 'auto', maxHeight: 320, marginTop: 6,
+                whiteSpace: 'pre-wrap',
+              }}>{result.traceback.trim()}</pre>
+            </details>
+          )}
+        </div>
       )}
 
       {result?.results && (
