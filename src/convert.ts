@@ -88,7 +88,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           sourceHandle: undefined,
           targetHandle: port,
           label: port,
-          animated: true,
+          animated: false,
           data: { edgeType: 'input' },
         });
       }
