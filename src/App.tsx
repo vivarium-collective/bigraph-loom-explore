@@ -11,6 +11,8 @@ import StoreNode from './nodes/StoreNode';
 import { applyLayout } from './layout';
 import { stateToReactFlow } from './convert';
 import { InspectorPanel } from './panels/InspectorPanel';
+import { RunPanel } from './panels/RunPanel';
+import { DocumentPanel } from './panels/DocumentPanel';
 import { EmitContext } from './EmitContext';
 import {
   postReady, postInspect, postEmitChanged, onCompositeLoad, decodeUrlComposite,
@@ -20,6 +22,8 @@ import type { ExploreInspectMsg } from './api';
 // applyLayout(nodes, edges) → Node[] (returns nodes array directly)
 const NODE_TYPES = { process: ProcessNode, store: StoreNode };
 
+type TabId = 'view' | 'run' | 'document';
+
 export default function App() {
   const [state, setState] = useState<any | null>(decodeUrlComposite());
   const [selection, setSelection] = useState<Omit<ExploreInspectMsg, 'type'> | null>(null);
@@ -27,6 +31,13 @@ export default function App() {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Explicit-emit store paths (joined by '/'). Descendants inherit emission.
   const [emitSet, setEmitSet] = useState<Set<string>>(new Set());
+  const [tab, setTab] = useState<TabId>('view');
+  const [compositeId, setCompositeId] = useState<string | null>(() => {
+    // Bootstrap from URL query if present (for popups deep-linked with ?id=)
+    const p = new URLSearchParams(window.location.search);
+    return p.get('id');
+  });
+  const [runContext, setRunContext] = useState<string>('');
   const readyFiredRef = useRef(false);
 
   // Use React Flow's controlled-state hooks so drag changes persist across
@@ -42,6 +53,8 @@ export default function App() {
       setState(msg.state);
       setCollapsed(new Set());  // reset folding when a new composite loads
       setEmitSet(new Set());    // reset emit selection when a new composite loads
+      if (msg.metadata?.id) setCompositeId(msg.metadata.id);
+      setRunContext(msg.metadata?.context || '');
     });
     if (!readyFiredRef.current) {
       readyFiredRef.current = true;
@@ -131,38 +144,84 @@ export default function App() {
     );
   }
 
+  const tabs: TabId[] = ['view', 'run', 'document'];
+
   return (
     <ReactFlowProvider>
-      <EmitContext.Provider value={emitSet}>
-        <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            nodeTypes={NODE_TYPES}
-            onNodeClick={handleNodeClick}
-            onNodeDoubleClick={handleNodeDoubleClick}
-            fitView
-            /* Read-only viewer for wiring/structure, but users CAN rearrange
-               node positions by dragging individual nodes. What's forbidden:
-               new edges, edge reconnects, and any delete. */
-            nodesDraggable
-            nodesConnectable={false}
-            edgesReconnectable={false}
-            connectOnClick={false}
-            deleteKeyCode={null}
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
-          <InspectorPanel
-            selection={selection}
-            emitSet={emitSet}
-            onEmitToggle={handleEmitToggle}
-          />
+      <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh' }}>
+        <nav style={{
+          display: 'flex', gap: 24, alignItems: 'center',
+          padding: '8px 16px',
+          borderBottom: '1px solid #e5e7eb',
+          background: '#fff',
+          flex: '0 0 auto',
+        }}>
+          {tabs.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                background: 'transparent', border: 0,
+                padding: '6px 0', fontSize: 14,
+                borderBottom: '2px solid ' + (tab === t ? '#2563eb' : 'transparent'),
+                color: tab === t ? '#2563eb' : '#6b7280',
+                fontWeight: tab === t ? 600 : 400,
+                cursor: 'pointer', textTransform: 'capitalize',
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </nav>
+
+        <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
+          {/* The View tab must always be rendered so ReactFlow doesn't lose
+              its node-position state on tab switches; we hide it instead. */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: tab === 'view' ? 'block' : 'none',
+          }}>
+            <EmitContext.Provider value={emitSet}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                nodeTypes={NODE_TYPES}
+                onNodeClick={handleNodeClick}
+                onNodeDoubleClick={handleNodeDoubleClick}
+                fitView
+                /* Read-only viewer for wiring/structure, but users CAN rearrange
+                   node positions by dragging individual nodes. What's forbidden:
+                   new edges, edge reconnects, and any delete. */
+                nodesDraggable
+                nodesConnectable={false}
+                edgesReconnectable={false}
+                connectOnClick={false}
+                deleteKeyCode={null}
+              >
+                <Background />
+                <Controls />
+              </ReactFlow>
+              <InspectorPanel
+                selection={selection}
+                emitSet={emitSet}
+                onEmitToggle={handleEmitToggle}
+              />
+            </EmitContext.Provider>
+          </div>
+          {tab === 'run' && (
+            <RunPanel
+              compositeId={compositeId}
+              emitSet={emitSet}
+              runContext={runContext}
+            />
+          )}
+          {tab === 'document' && (
+            <DocumentPanel state={state} />
+          )}
         </div>
-      </EmitContext.Provider>
+      </div>
     </ReactFlowProvider>
   );
 }
