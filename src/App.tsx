@@ -218,7 +218,7 @@ export default function App() {
             />
           )}
           {tab === 'document' && (
-            <DocumentPanel state={state} />
+            <DocumentPanel state={state} compositeId={compositeId} />
           )}
         </div>
       </div>
