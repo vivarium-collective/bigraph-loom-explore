@@ -84,3 +84,65 @@ export function decodeUrlComposite(): any | null {
     return null;
   }
 }
+
+// --- Run lifecycle (start-then-poll) -------------------------------------
+
+export type RunStatusValue = 'running' | 'completed' | 'failed' | 'orphaned';
+
+export interface StartRunArgs {
+  id: string;
+  steps: number;
+  emit_paths: string[];
+  overrides?: Record<string, unknown>;
+  label?: string;
+}
+
+export interface StartRunResponse {
+  run_id: string;
+  status: RunStatusValue;
+}
+
+export interface RunStatus {
+  run_id: string;
+  status: RunStatusValue;
+  progress_step: number;
+  n_steps: number | null;
+  heartbeat_at: number | null;
+  error?: string;
+  log_path?: string;
+  viz_html?: Record<string, { html: string }>;
+}
+
+export interface RunTrajectory {
+  run_id: string;
+  trajectory: Array<{ step: number; time?: number; state: Record<string, unknown> }>;
+}
+
+/** Start a detached composite run. Resolves with {run_id}; rejects on non-2xx
+ *  (notably 429 when the concurrency cap is hit) with the server's error text. */
+export async function startRun(args: StartRunArgs): Promise<StartRunResponse> {
+  const r = await fetch('/api/composite-test-run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as StartRunResponse;
+}
+
+/** Poll one run's status. Cheap single-row read; safe to call on an interval. */
+export async function fetchRunStatus(runId: string): Promise<RunStatus> {
+  const r = await fetch(`/api/composite-run/${runId}/status`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as RunStatus;
+}
+
+/** Fetch a run's trajectory. Works mid-run (partial) and after completion. */
+export async function fetchRunTrajectory(runId: string): Promise<RunTrajectory> {
+  const r = await fetch(`/api/composite-run/${runId}`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as RunTrajectory;
+}

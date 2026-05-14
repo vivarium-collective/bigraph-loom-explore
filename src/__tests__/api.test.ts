@@ -74,3 +74,62 @@ describe('postMessage protocol', () => {
     off();
   });
 });
+
+describe('run lifecycle fetch helpers', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('startRun POSTs to composite-test-run and returns run_id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: async () => ({ run_id: 'r-1', status: 'running' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { startRun } = await import('../api');
+    const res = await startRun({ id: 'pkg.composites.demo', steps: 5, emit_paths: [] });
+    expect(fetchMock).toHaveBeenCalledWith('/api/composite-test-run', expect.objectContaining({
+      method: 'POST',
+    }));
+    expect(res).toEqual({ run_id: 'r-1', status: 'running' });
+  });
+
+  it('startRun surfaces a 429 cap error', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: 'too many runs in progress' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { startRun } = await import('../api');
+    await expect(startRun({ id: 'x', steps: 1, emit_paths: [] }))
+      .rejects.toThrow(/too many runs/);
+  });
+
+  it('fetchRunStatus GETs the status endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ run_id: 'r-1', status: 'completed', progress_step: 5, n_steps: 5 }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { fetchRunStatus } = await import('../api');
+    const res = await fetchRunStatus('r-1');
+    expect(fetchMock).toHaveBeenCalledWith('/api/composite-run/r-1/status');
+    expect(res.status).toBe('completed');
+  });
+
+  it('fetchRunTrajectory GETs the run endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ run_id: 'r-1', trajectory: [{ step: 0, state: {} }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { fetchRunTrajectory } = await import('../api');
+    const res = await fetchRunTrajectory('r-1');
+    expect(fetchMock).toHaveBeenCalledWith('/api/composite-run/r-1');
+    expect(res.trajectory).toHaveLength(1);
+  });
+});
