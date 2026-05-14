@@ -20,6 +20,12 @@ export type ExploreEmitChangedMsg = {
   paths: string[];  // explicit-emit path strings, joined by '/'
 };
 
+export type ExploreRunCompleteMsg = {
+  type: 'explore:run-complete';
+  simulation_id: string;
+  composite_id: string;
+};
+
 /** Pick the right postMessage target for the embedding context.
  *
  * - Embedded iframe: messages go to `window.parent` (the embedding page).
@@ -47,6 +53,14 @@ export function postEmitChanged(paths: string[]) {
   const target = _embeddingTarget();
   if (target) target.postMessage(
     { type: 'explore:emit-changed', paths } as ExploreEmitChangedMsg,
+    '*',
+  );
+}
+
+export function postRunComplete(simulation_id: string, composite_id: string) {
+  const target = _embeddingTarget();
+  if (target) target.postMessage(
+    { type: 'explore:run-complete', simulation_id, composite_id } as ExploreRunCompleteMsg,
     '*',
   );
 }

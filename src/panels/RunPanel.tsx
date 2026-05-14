@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type React from 'react';
 import { JsonTree } from './JsonNode';
+import { postRunComplete } from '../api';
 
 export interface RunPanelProps {
   compositeId: string | null;
@@ -152,6 +153,9 @@ export function RunPanel(props: RunPanelProps) {
         setResult({ error: body.error || `HTTP ${r.status}` });
       } else {
         setResult(body);
+        if (body.simulation_id && props.compositeId) {
+          postRunComplete(body.simulation_id, props.compositeId);
+        }
       }
     } catch (e: any) {
       setResult({ error: 'Network error: ' + String(e) });
