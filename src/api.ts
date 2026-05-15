@@ -13,6 +13,7 @@ export type CompositeLoadMsg = {
   state: any;
   parameters?: Record<string, ParameterDecl>;
   overrides?: Record<string, unknown>;
+  default_n_steps?: number;
   metadata?: { name?: string; library?: string; context?: string; id?: string };
 };
 

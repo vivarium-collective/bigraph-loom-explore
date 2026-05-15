@@ -12,6 +12,10 @@ export interface RunPanelProps {
   emitSet: Set<string>;
   overrides?: Record<string, unknown>;
   runContext?: string;
+  /** Default number of steps; comes from the composite's
+   *  ``@composite_generator(default_n_steps=...)`` declaration via the
+   *  ``composite:load`` postMessage. Falls back to 5 if not provided. */
+  defaultSteps?: number;
   /** Called with the latest trajectory rows as they arrive. The ResultsPanel
    *  is responsible for rendering them. */
   onTrajectory?: (rows: TrajectoryRow[]) => void;
@@ -24,7 +28,14 @@ const ACTIVE_RUN_KEY = 'loom-explore:active-run';
 const POLL_MS = 1500;
 
 export function RunPanel(props: RunPanelProps) {
-  const [steps, setSteps] = useState(5);
+  const [steps, setSteps] = useState(props.defaultSteps ?? 5);
+  // When a new composite loads with a different defaultSteps, re-seed the
+  // input so the user sees the composite's recommended run length without
+  // having to manually clear an old value. We deliberately key on
+  // compositeId so manual edits inside one composite aren't clobbered.
+  useEffect(() => {
+    if (props.defaultSteps != null) setSteps(props.defaultSteps);
+  }, [props.compositeId, props.defaultSteps]);
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<RunStatus | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
@@ -149,7 +160,7 @@ export function RunPanel(props: RunPanelProps) {
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
         <label>
           Steps{' '}
-          <input type="number" min={1} max={100} value={steps}
+          <input type="number" min={1} max={10000} value={steps}
                  onChange={(e) => setSteps(parseInt(e.target.value) || 1)}
                  style={{ width: 70 }} disabled={isRunning} />
         </label>
