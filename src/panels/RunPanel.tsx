@@ -1,114 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type React from 'react';
-import { JsonTree } from './JsonNode';
 import {
   postRunComplete, startRun, fetchRunStatus, fetchRunTrajectory,
   type RunStatus,
 } from '../api';
+
+type TrajectoryRow = { step: number; time?: number; state: Record<string, unknown> };
 
 export interface RunPanelProps {
   compositeId: string | null;
   emitSet: Set<string>;
   overrides?: Record<string, unknown>;
   runContext?: string;
+  /** Called with the latest trajectory rows as they arrive. The ResultsPanel
+   *  is responsible for rendering them. */
+  onTrajectory?: (rows: TrajectoryRow[]) => void;
+  /** Called with the viz-html map when a run completes. The
+   *  VisualizationsPanel renders each entry in an iframe. */
+  onVizHtml?: (vizHtml: Record<string, { html: string }> | null) => void;
 }
 
 const ACTIVE_RUN_KEY = 'loom-explore:active-run';
 const POLL_MS = 1500;
 
-/** One observable row: expandable; step navigator + JSON tree. */
-function ObservableRow({ name, entries }: { name: string; entries: any[] }) {
-  const [open, setOpen] = useState(false);
-  const [step, setStep] = useState(entries.length ? entries.length - 1 : 0);
-  const total = entries.length;
-  const current = (entries[step] || {}) as Record<string, unknown>;
-
-  const visible: Record<string, unknown> = {};
-  Object.entries(current).forEach(([k, v]) => {
-    if (k === 'time' || k.startsWith('_')) return;
-    visible[k] = v;
-  });
-
-  const previewKv = Object.entries(visible).slice(0, 1)[0];
-  const previewStr = previewKv
-    ? (() => {
-        const v = previewKv[1];
-        if (v === null || typeof v !== 'object') return String(v);
-        if (Array.isArray(v)) return `list[${v.length}]`;
-        return `{${Object.keys(v as object).length} keys}`;
-      })()
-    : '—';
-
-  return (
-    <>
-      <tr style={{ borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
-          onClick={() => setOpen((o) => !o)}>
-        <td style={{ padding: '6px 8px' }}>
-          <span style={{ display: 'inline-block', width: 14, color: '#6b7280' }}>
-            {open ? '▾' : '▸'}
-          </span>
-          <code>{name}</code>
-        </td>
-        <td style={{ padding: '6px 8px' }}>{total}</td>
-        <td style={{ padding: '6px 8px', fontFamily: 'monospace', fontSize: 12, color: '#4b5563' }}>
-          {previewStr}
-        </td>
-      </tr>
-      {open && (
-        <tr>
-          <td colSpan={3} style={{ background: '#fafafa', padding: 0 }}>
-            <div style={{ padding: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, fontSize: 13 }}>
-                <button onClick={() => setStep((s) => Math.max(0, s - 1))}
-                        disabled={step === 0} style={{ padding: '2px 8px' }}>‹ Prev</button>
-                <span style={{ color: '#374151' }}>
-                  Step <strong>{step + 1}</strong> of {total}
-                </span>
-                <input type="range" min={0} max={Math.max(0, total - 1)} value={step}
-                       onChange={(e) => setStep(parseInt(e.target.value, 10) || 0)}
-                       style={{ flex: 1, maxWidth: 320 }} />
-                <button onClick={() => setStep((s) => Math.min(total - 1, s + 1))}
-                        disabled={step >= total - 1} style={{ padding: '2px 8px' }}>Next ›</button>
-                {current.time !== undefined && (
-                  <small style={{ color: '#6b7280' }}>time = {String(current.time)}</small>
-                )}
-              </div>
-              <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 4,
-                            padding: '8px 12px', maxHeight: 400, overflow: 'auto' }}>
-                {Object.keys(visible).length === 0 ? (
-                  <p style={{ color: '#9ca3af', fontSize: 13, margin: 0 }}>
-                    No emitted fields at this step.
-                  </p>
-                ) : (
-                  <JsonTree value={visible} />
-                )}
-              </div>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-/** Group a flat trajectory list into ObservableRow-friendly per-key entries. */
-function trajectoryToObservables(
-  trajectory: Array<{ step: number; state: Record<string, unknown> }>,
-): Record<string, any[]> {
-  const out: Record<string, any[]> = {};
-  for (const row of trajectory) {
-    for (const [k, v] of Object.entries(row.state || {})) {
-      (out[k] ||= []).push(v);
-    }
-  }
-  return out;
-}
-
 export function RunPanel(props: RunPanelProps) {
   const [steps, setSteps] = useState(5);
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<RunStatus | null>(null);
-  const [observables, setObservables] = useState<Record<string, any[]> | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -123,10 +41,15 @@ export function RunPanel(props: RunPanelProps) {
     }
   }, []);
 
+  const onTrajectoryRef = useRef(props.onTrajectory);
+  const onVizHtmlRef = useRef(props.onVizHtml);
+  useEffect(() => { onTrajectoryRef.current = props.onTrajectory; }, [props.onTrajectory]);
+  useEffect(() => { onVizHtmlRef.current = props.onVizHtml; }, [props.onVizHtml]);
+
   const loadTrajectory = useCallback(async (id: string) => {
     try {
       const traj = await fetchRunTrajectory(id);
-      setObservables(trajectoryToObservables(traj.trajectory));
+      onTrajectoryRef.current?.(traj.trajectory);
     } catch {
       /* trajectory not ready yet — ignore, next poll retries */
     }
@@ -144,6 +67,7 @@ export function RunPanel(props: RunPanelProps) {
         return; // transient — try again next tick
       }
       setStatus(s);
+      if (s.viz_html) onVizHtmlRef.current?.(s.viz_html);
       if (s.status === 'running') {
         void loadTrajectory(id);
       } else {
@@ -183,7 +107,8 @@ export function RunPanel(props: RunPanelProps) {
     }
     setStartError(null);
     setStatus(null);
-    setObservables(null);
+    onTrajectoryRef.current?.([]);   // clear previous results
+    onVizHtmlRef.current?.(null);
     try {
       const res = await startRun({
         id: props.compositeId,
@@ -281,49 +206,10 @@ export function RunPanel(props: RunPanelProps) {
 
       {status?.status === 'completed' && (
         <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 10px' }}>
-          Run complete — <strong>{status.n_steps ?? 0}</strong> steps. Click any
-          observable row to browse its trajectory.
+          Run complete — <strong>{status.n_steps ?? 0}</strong> steps. See the{' '}
+          <strong>Results</strong> tab for emitter trajectories and the{' '}
+          <strong>Visualizations</strong> tab for rendered viz output.
         </p>
-      )}
-
-      {observables && (
-        <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: '#f3f4f6' }}>
-              <th style={{ textAlign: 'left', padding: '6px 8px' }}>Observable</th>
-              <th style={{ textAlign: 'left', padding: '6px 8px', width: 80 }}>Steps</th>
-              <th style={{ textAlign: 'left', padding: '6px 8px' }}>Latest preview</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(observables).sort().map(([k, entries]) => (
-              <ObservableRow key={k} name={k} entries={entries} />
-            ))}
-            {!Object.keys(observables).length && (
-              <tr>
-                <td colSpan={3} style={{ padding: 12, color: '#666' }}>
-                  No observables emitted. Toggle stores in the View tab to capture their values.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      )}
-
-      {status?.viz_html && Object.keys(status.viz_html).length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <h4>Visualizations</h4>
-          {Object.entries(status.viz_html).map(([path, payload]) => (
-            <div key={path} style={{ marginBottom: 12, border: '1px solid #e5e7eb', borderRadius: 4 }}>
-              <div style={{ padding: '6px 10px', background: '#f3f4f6', fontFamily: 'monospace', fontSize: 12 }}>
-                {path}
-              </div>
-              <iframe srcDoc={(payload as { html: string }).html || '<p>No HTML</p>'}
-                      style={{ width: '100%', height: 320, border: 0 }}
-                      sandbox="allow-scripts" />
-            </div>
-          ))}
-        </div>
       )}
 
       {!runId && !startError && (

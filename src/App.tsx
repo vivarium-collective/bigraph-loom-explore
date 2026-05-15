@@ -13,6 +13,8 @@ import { applyLayout } from './layout';
 import { stateToReactFlow, topLevelStorePaths } from './convert';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { RunPanel } from './panels/RunPanel';
+import { ResultsPanel } from './panels/ResultsPanel';
+import { VisualizationsPanel } from './panels/VisualizationsPanel';
 import { DocumentPanel } from './panels/DocumentPanel';
 import { ConfigurePanel } from './panels/ConfigurePanel';
 import { EmitContext } from './EmitContext';
@@ -25,7 +27,9 @@ import type { ExploreInspectMsg, ParameterDecl } from './api';
 const NODE_TYPES = { process: ProcessNode, store: StoreNode };
 const EDGE_TYPES = { floating: FloatingStoreEdge };
 
-type TabId = 'view' | 'configure' | 'run' | 'document';
+type TabId = 'view' | 'configure' | 'run' | 'results' | 'visualizations' | 'document';
+
+type TrajectoryRow = { step: number; time?: number; state: Record<string, unknown> };
 
 export default function App() {
   const [state, setState] = useState<any | null>(decodeUrlComposite());
@@ -50,6 +54,9 @@ export default function App() {
   // Composite parameters + current overrides (for the Configure tab).
   const [parameters, setParameters] = useState<Record<string, ParameterDecl>>({});
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+  // Run output, lifted up so Results / Visualizations tabs can read it.
+  const [trajectory, setTrajectory] = useState<TrajectoryRow[] | null>(null);
+  const [vizHtml, setVizHtml] = useState<Record<string, { html: string }> | null>(null);
   const readyFiredRef = useRef(false);
 
   // Use React Flow's controlled-state hooks so drag changes persist across
@@ -75,6 +82,9 @@ export default function App() {
       setLibrary(msg.metadata?.library ?? null);
       setParameters(msg.parameters ?? {});
       setOverrides(msg.overrides ?? {});
+      // A new composite loaded — clear any prior run output.
+      setTrajectory(null);
+      setVizHtml(null);
     });
     if (!readyFiredRef.current) {
       readyFiredRef.current = true;
@@ -202,35 +212,40 @@ export default function App() {
     );
   }
 
-  const tabs: TabId[] = ['view', 'configure', 'run', 'document'];
+  const tabs: TabId[] = ['view', 'configure', 'run', 'results', 'visualizations', 'document'];
 
   return (
     <ReactFlowProvider>
       <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh' }}>
+        {/* Thin breadcrumb header: composite name + library.
+            One layer up from the tabs so the tab strip stays compact. */}
+        {(name || compositeId) && (
+          <div style={{
+            display: 'flex', alignItems: 'baseline', gap: 6,
+            padding: '4px 16px',
+            fontSize: 12,
+            borderBottom: '1px solid #f3f4f6',
+            background: '#fff',
+            flex: '0 0 auto',
+          }}>
+            <span style={{ fontWeight: 600, color: '#111827' }}>
+              {name || compositeId}
+            </span>
+            {library && (
+              <>
+                <span style={{ color: '#d1d5db' }}>·</span>
+                <span style={{ color: '#6b7280' }}>{library}</span>
+              </>
+            )}
+          </div>
+        )}
         <nav style={{
           display: 'flex', gap: 24, alignItems: 'center',
-          padding: '8px 16px',
+          padding: '4px 16px',
           borderBottom: '1px solid #e5e7eb',
           background: '#fff',
           flex: '0 0 auto',
         }}>
-          {(name || compositeId) && (
-            <span style={{
-              display: 'flex', alignItems: 'baseline', gap: 6,
-              marginRight: 8, paddingRight: 16,
-              borderRight: '1px solid #e5e7eb',
-            }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
-                {name || compositeId}
-              </span>
-              {library && (
-                <>
-                  <span style={{ color: '#d1d5db' }}>·</span>
-                  <span style={{ fontSize: 13, color: '#6b7280' }}>{library}</span>
-                </>
-              )}
-            </span>
-          )}
           {tabs.map((t) => (
             <button
               key={t}
@@ -300,6 +315,20 @@ export default function App() {
               emitSet={emitSet}
               overrides={overrides}
               runContext={runContext}
+              onTrajectory={setTrajectory}
+              onVizHtml={setVizHtml}
+            />
+          )}
+          {tab === 'results' && (
+            <ResultsPanel
+              trajectory={trajectory}
+              hasRun={trajectory !== null || vizHtml !== null}
+            />
+          )}
+          {tab === 'visualizations' && (
+            <VisualizationsPanel
+              vizHtml={vizHtml}
+              hasRun={trajectory !== null || vizHtml !== null}
             />
           )}
           {tab === 'document' && (
