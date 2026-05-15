@@ -1,137 +1,169 @@
 // src/layout.ts — async layered layout via elkjs.
 //
-// Replaces the previous Dagre TB-only-place-edges pass. Goals (from the
-// "composite explorer layout overhaul" design):
-//   - Left-right flow (matches input-port-on-left, output-port-on-right).
-//   - Cluster: child stores + their processes nest under their parent store
-//     in the ELK compound graph, so related nodes lay out close together
-//     instead of stretching into one long line.
-//   - Wire edges contribute to layout (informs ranking + crossing
-//     minimization), unlike the prior code which used place edges only.
+// Goal: preserve the inner/outer store hierarchy.
+//   - "Outers above inners" → top-to-bottom flow (`direction: DOWN`).
+//   - "Inners at the same level shown next to each other in a cluster"
+//     → for every store with children, wrap that store AND its children in
+//     a synthetic compound. ELK lays out each compound in isolation, so
+//     siblings stay together; layered direction DOWN puts the parent at
+//     the top and the children in a row below.
 //
-// The layout function is async (ELK's API). Callers that want the
-// non-async "use whatever positions are already there" simple fallback
-// can use `applyCompactLayout` synchronously.
+// Process nodes are pulled into a store's cluster too: their `data.path`
+// parent is the store they conceptually live in, so they go into the
+// same synthetic compound and end up rendered next to their siblings.
+//
+// Only PLACE edges (parent-store → child-store nesting) are fed to ELK
+// as ranking hints. Wire edges (process port ↔ store) are drawn by
+// React Flow based on the resulting positions but don't pull processes
+// out of their natural cluster.
 
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { Node, Edge } from "@xyflow/react";
 
 const elk = new ELK();
 
-/** Elk options applied at every level (top-level + every compound). */
-const LAYOUT_OPTIONS: Record<string, string> = {
+const COMMON_LAYOUT: Record<string, string> = {
   "elk.algorithm": "layered",
-  "elk.direction": "RIGHT",
+  "elk.direction": "DOWN",
   "elk.layered.nodePlacement.strategy": "NETWORK_SIMPLEX",
   "elk.layered.crossingMinimization.strategy": "LAYER_SWEEP",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "80",
-  "elk.spacing.nodeNode": "50",
-  "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "60",
+  "elk.spacing.nodeNode": "40",
+  "elk.padding": "[top=20,left=20,bottom=20,right=20]",
 };
 
-/** Default measured size used before React Flow has measured the real node. */
 function nodeSize(n: Node): { width: number; height: number } {
   if (n.type === "process") return { width: 140, height: 60 };
-  return { width: 80, height: 60 };  // store (circle, bbox-ish)
+  return { width: 80, height: 80 };  // store circle
 }
 
-/** A node's store-parent path = its path with the last segment dropped. */
 function parentPathKey(n: Node): string | null {
   const path: unknown = (n.data as { path?: unknown })?.path;
   if (!Array.isArray(path) || path.length <= 1) return null;
   return (path as string[]).slice(0, -1).join(".");
 }
 
-/** A node's own id-as-path key (matches the convention in `convert.ts`). */
 function selfPathKey(n: Node): string | null {
   const path: unknown = (n.data as { path?: unknown })?.path;
   if (!Array.isArray(path) || path.length === 0) return null;
   return (path as string[]).join(".");
 }
 
-/**
- * Async layered layout. Builds an ELK compound graph from the React Flow
- * nodes + edges (clustering by store-path), runs ELK, and returns nodes
- * with absolute x/y positions. ELK's nested-coordinate output is
- * flattened here so the rest of the app can keep treating React Flow as
- * a flat node list (no `parentId` wiring required).
- */
 export async function applyLayout(
   nodes: Node[],
   edges: Edge[],
 ): Promise<Node[]> {
   if (nodes.length === 0) return [];
 
-  // Map id → node for quick lookup.
+  // Index nodes and the store nodes by their path-key (so we can find a
+  // node's compound parent by name).
   const byId = new Map<string, Node>();
-  for (const n of nodes) byId.set(n.id, n);
-
-  // For each visible node, find its "compound parent" — the store node
-  // whose own path matches this node's parent-path. Falls back to ROOT
-  // when the immediate parent isn't in the visible set (e.g. it's
-  // collapsed and filtered out upstream).
-  const compoundParentOf = (n: Node): string | null => {
-    const pk = parentPathKey(n);
-    if (!pk) return null;
-    for (const candidate of nodes) {
-      if (candidate.type !== "store") continue;
-      if (selfPathKey(candidate) === pk) return candidate.id;
-    }
-    return null;
-  };
-
-  // Build the compound tree. Top-level nodes are children of __root__.
-  const ROOT = "__root__";
-  const childrenByParent = new Map<string, string[]>();
-  childrenByParent.set(ROOT, []);
+  const storeByPath = new Map<string, Node>();
   for (const n of nodes) {
-    const p = compoundParentOf(n) ?? ROOT;
-    if (!childrenByParent.has(p)) childrenByParent.set(p, []);
-    childrenByParent.get(p)!.push(n.id);
+    byId.set(n.id, n);
+    if (n.type === "store") {
+      const pk = selfPathKey(n);
+      if (pk) storeByPath.set(pk, n);
+    }
   }
 
-  // Recursively build ELK node tree.
-  function buildElkNode(id: string): unknown {
-    const childIds = childrenByParent.get(id) ?? [];
-    const self = id === ROOT ? null : byId.get(id);
-    const size = self ? nodeSize(self) : { width: 0, height: 0 };
+  // For every node, find its compound parent — the visible store node whose
+  // own path matches this node's parent-path. Falls back to ROOT (top-level)
+  // when no such store is visible (e.g. its container is collapsed).
+  const ROOT = "__root__";
+  const compoundParent = new Map<string, string>();
+  const childrenByParent = new Map<string, string[]>([[ROOT, []]]);
+  for (const n of nodes) {
+    const pk = parentPathKey(n);
+    let parentId: string = ROOT;
+    if (pk) {
+      const parentStore = storeByPath.get(pk);
+      if (parentStore) parentId = parentStore.id;
+    }
+    compoundParent.set(n.id, parentId);
+    if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, []);
+    childrenByParent.get(parentId)!.push(n.id);
+  }
+
+  // Build the ELK tree. Stores with children get wrapped in a synthetic
+  // compound whose first child is the store itself (rendered as a real
+  // node) and whose remaining children are recursive compounds for the
+  // store's own children. Direction DOWN places the store at the top
+  // and its children in a row below.
+  function buildElkChildren(parentId: string): unknown[] {
+    const ids = childrenByParent.get(parentId) ?? [];
+    return ids.map((id) => buildElkNodeFor(id));
+  }
+  function buildElkNodeFor(id: string): unknown {
+    const node = byId.get(id);
+    if (!node) return { id, width: 0, height: 0 };
+    const grandChildren = childrenByParent.get(id) ?? [];
+    if (grandChildren.length === 0) {
+      // Leaf
+      return {
+        id,
+        ...nodeSize(node),
+      };
+    }
+    // Compound: synthetic wrapper containing this node + recursive
+    // sub-compounds for its children.
     return {
-      id,
-      ...(self ? size : {}),
-      layoutOptions: LAYOUT_OPTIONS,
-      children: childIds.map(buildElkNode),
+      id: `wrap:${id}`,
+      layoutOptions: COMMON_LAYOUT,
+      children: [
+        { id, ...nodeSize(node) },
+        ...buildElkChildren(id),
+      ],
+      // Synthetic internal edges from the parent to each child push the
+      // parent to the top of the compound under direction: DOWN.
+      edges: grandChildren.map((cid) => {
+        const childTarget = (childrenByParent.get(cid) ?? []).length > 0
+          ? `wrap:${cid}` : cid;
+        return {
+          id: `internal:${id}->${childTarget}`,
+          sources: [id],
+          targets: [childTarget],
+        };
+      }),
     };
   }
 
-  const elkEdges = edges.map((e) => ({
-    id: e.id,
-    sources: [e.source],
-    targets: [e.target],
-  }));
+  // Top-level place edges between top-level stores (rare but possible).
+  const topLevelChildIds = childrenByParent.get(ROOT) ?? [];
+  const topLevelStoreIds = new Set(topLevelChildIds);
+  const topLevelEdges = edges
+    .filter((e) => (e.data as { edgeType?: string } | undefined)?.edgeType === "place")
+    .filter((e) => topLevelStoreIds.has(e.source) && topLevelStoreIds.has(e.target))
+    .map((e) => {
+      const targetWrap = (childrenByParent.get(e.target) ?? []).length > 0
+        ? `wrap:${e.target}` : e.target;
+      return {
+        id: e.id,
+        sources: [e.source],
+        targets: [targetWrap],
+      };
+    });
 
   const elkGraph = {
     id: ROOT,
-    layoutOptions: {
-      ...LAYOUT_OPTIONS,
-      // Allow edges to cross compound boundaries (wire edges between a
-      // process inside one store and a sibling store, etc.).
-      "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-    },
-    children: (childrenByParent.get(ROOT) ?? []).map(buildElkNode),
-    edges: elkEdges,
+    layoutOptions: COMMON_LAYOUT,
+    children: topLevelChildIds.map((id) => buildElkNodeFor(id)),
+    edges: topLevelEdges,
   };
 
-  // ELK types are loose; cast where needed.
   const result = (await elk.layout(elkGraph as never)) as {
     children?: Array<{ id: string; x?: number; y?: number; children?: unknown[] }>;
   };
 
-  // Walk the result tree, accumulating absolute positions per node.
+  // Flatten to absolute positions for every real node. Skip synthetic
+  // "wrap:*" wrapper compounds — only real React Flow nodes need a position.
   const positions = new Map<string, { x: number; y: number }>();
   function walk(n: { id: string; x?: number; y?: number; children?: unknown[] }, parentX = 0, parentY = 0) {
     const absX = parentX + (n.x ?? 0);
     const absY = parentY + (n.y ?? 0);
-    if (n.id !== ROOT) positions.set(n.id, { x: absX, y: absY });
+    if (n.id !== ROOT && !n.id.startsWith("wrap:")) {
+      positions.set(n.id, { x: absX, y: absY });
+    }
     for (const c of (n.children ?? []) as Array<{ id: string; x?: number; y?: number; children?: unknown[] }>) {
       walk(c, absX, absY);
     }

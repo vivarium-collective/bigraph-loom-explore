@@ -23,17 +23,19 @@ describe('applyLayout (async ELK)', () => {
     expect(samePosition).toBe(false);
   });
 
-  it('places connected nodes in left-to-right order along the flow direction', async () => {
+  it('places connected nodes top-to-bottom along the place-edge flow', async () => {
+    // direction: DOWN with a place edge → target ends up BELOW source.
+    // Use store nodes with a place edge so the layout treats it as ranking input.
     const nodes = [
-      { id: 'src', type: 'process', data: {} as any, position: { x: 0, y: 0 } },
-      { id: 'dst', type: 'store',   data: {} as any, position: { x: 0, y: 0 } },
+      { id: 'outer', type: 'store', data: { path: ['outer'] } as any, position: { x: 0, y: 0 } },
+      { id: 'inner', type: 'store', data: { path: ['outer', 'inner'] } as any, position: { x: 0, y: 0 } },
     ];
-    const edges = [{ id: 'e', source: 'src', target: 'dst' }];
+    const edges = [{ id: 'p', source: 'outer', target: 'inner', data: { edgeType: 'place' } as any }];
     const out = await applyLayout(nodes as any, edges as any);
-    const src = out.find((n) => n.id === 'src')!;
-    const dst = out.find((n) => n.id === 'dst')!;
-    // direction: RIGHT means destination is to the right of source.
-    expect(dst.position.x).toBeGreaterThan(src.position.x);
+    const outer = out.find((n) => n.id === 'outer')!;
+    const inner = out.find((n) => n.id === 'inner')!;
+    // Inner store should be below the outer (direction DOWN).
+    expect(inner.position.y).toBeGreaterThan(outer.position.y);
   });
 
   it('returns [] for empty input without invoking ELK', async () => {
