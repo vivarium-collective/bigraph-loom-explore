@@ -58,6 +58,9 @@ export default function App() {
   // Composite parameters + current overrides (for the Configure tab).
   const [parameters, setParameters] = useState<Record<string, ParameterDecl>>({});
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+  // From the composite_generator decorator's `default_n_steps=` argument.
+  // RunPanel seeds its steps input from this when a new composite loads.
+  const [defaultSteps, setDefaultSteps] = useState<number | undefined>(undefined);
   // Run output, lifted up so Results / Visualizations tabs can read it.
   const [trajectory, setTrajectory] = useState<TrajectoryRow[] | null>(null);
   const [vizHtml, setVizHtml] = useState<Record<string, { html: string }> | null>(null);
@@ -86,6 +89,7 @@ export default function App() {
       setLibrary(msg.metadata?.library ?? null);
       setParameters(msg.parameters ?? {});
       setOverrides(msg.overrides ?? {});
+      setDefaultSteps(msg.default_n_steps);
       // A new composite loaded — clear any prior run output.
       setTrajectory(null);
       setVizHtml(null);
@@ -392,6 +396,7 @@ export default function App() {
               emitSet={emitSet}
               overrides={overrides}
               runContext={runContext}
+              defaultSteps={defaultSteps}
               onTrajectory={setTrajectory}
               onVizHtml={setVizHtml}
             />
