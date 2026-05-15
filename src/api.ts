@@ -1,8 +1,18 @@
 // src/api.ts — postMessage protocol with the embedding dashboard.
 
+/** One parameter declared by a composite (spec or generator). Mirrors the
+ *  Python decorator's parameters shape. */
+export interface ParameterDecl {
+  type: 'string' | 'int' | 'float' | 'bool' | 'list[string]' | string;
+  default?: unknown;
+  description?: string;
+}
+
 export type CompositeLoadMsg = {
   type: 'composite:load';
   state: any;
+  parameters?: Record<string, ParameterDecl>;
+  overrides?: Record<string, unknown>;
   metadata?: { name?: string; library?: string; context?: string; id?: string };
 };
 

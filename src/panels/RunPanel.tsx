@@ -9,6 +9,7 @@ import {
 export interface RunPanelProps {
   compositeId: string | null;
   emitSet: Set<string>;
+  overrides?: Record<string, unknown>;
   runContext?: string;
 }
 
@@ -188,6 +189,7 @@ export function RunPanel(props: RunPanelProps) {
         id: props.compositeId,
         steps,
         emit_paths: Array.from(props.emitSet),
+        overrides: props.overrides,
       });
       setRunId(res.run_id);
       sessionStorage.setItem(ACTIVE_RUN_KEY, JSON.stringify({

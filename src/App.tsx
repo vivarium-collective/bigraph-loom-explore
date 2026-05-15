@@ -14,17 +14,18 @@ import { stateToReactFlow, topLevelStorePaths } from './convert';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { RunPanel } from './panels/RunPanel';
 import { DocumentPanel } from './panels/DocumentPanel';
+import { ConfigurePanel } from './panels/ConfigurePanel';
 import { EmitContext } from './EmitContext';
 import {
   postReady, postInspect, postEmitChanged, onCompositeLoad, decodeUrlComposite,
 } from './api';
-import type { ExploreInspectMsg } from './api';
+import type { ExploreInspectMsg, ParameterDecl } from './api';
 
 // applyLayout(nodes, edges) → Node[] (returns nodes array directly)
 const NODE_TYPES = { process: ProcessNode, store: StoreNode };
 const EDGE_TYPES = { floating: FloatingStoreEdge };
 
-type TabId = 'view' | 'run' | 'document';
+type TabId = 'view' | 'configure' | 'run' | 'document';
 
 export default function App() {
   const [state, setState] = useState<any | null>(decodeUrlComposite());
@@ -46,6 +47,9 @@ export default function App() {
   // Display metadata for the top bar — composite name + the library it's from.
   const [name, setName] = useState<string | null>(null);
   const [library, setLibrary] = useState<string | null>(null);
+  // Composite parameters + current overrides (for the Configure tab).
+  const [parameters, setParameters] = useState<Record<string, ParameterDecl>>({});
+  const [overrides, setOverrides] = useState<Record<string, unknown>>({});
   const readyFiredRef = useRef(false);
 
   // Use React Flow's controlled-state hooks so drag changes persist across
@@ -69,6 +73,8 @@ export default function App() {
       setRunContext(msg.metadata?.context || '');
       setName(msg.metadata?.name ?? null);
       setLibrary(msg.metadata?.library ?? null);
+      setParameters(msg.parameters ?? {});
+      setOverrides(msg.overrides ?? {});
     });
     if (!readyFiredRef.current) {
       readyFiredRef.current = true;
@@ -152,6 +158,14 @@ export default function App() {
     });
   }, []);
 
+  const handleApplied = useCallback(
+    (newOverrides: Record<string, unknown>, newState: unknown) => {
+      setOverrides(newOverrides);
+      setState(newState);
+    },
+    [setState],
+  );
+
   const handleEmitToggle = useCallback((path: string[], on: boolean) => {
     setEmitSet((prev) => {
       const next = new Set(prev);
@@ -188,7 +202,7 @@ export default function App() {
     );
   }
 
-  const tabs: TabId[] = ['view', 'run', 'document'];
+  const tabs: TabId[] = ['view', 'configure', 'run', 'document'];
 
   return (
     <ReactFlowProvider>
@@ -272,10 +286,19 @@ export default function App() {
               />
             </EmitContext.Provider>
           </div>
+          {tab === 'configure' && (
+            <ConfigurePanel
+              compositeId={compositeId}
+              parameters={parameters}
+              overrides={overrides}
+              onApplied={handleApplied}
+            />
+          )}
           {tab === 'run' && (
             <RunPanel
               compositeId={compositeId}
               emitSet={emitSet}
+              overrides={overrides}
               runContext={runContext}
             />
           )}
