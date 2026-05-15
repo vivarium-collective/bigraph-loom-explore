@@ -10,6 +10,10 @@ import ProcessNode from './nodes/ProcessNode';
 import StoreNode from './nodes/StoreNode';
 import FloatingStoreEdge from './edges/FloatingStoreEdge';
 import { applyLayout } from './layout';
+import {
+  loadLayout, saveLayout, clearLayout,
+  applySavedPositions, positionsFromNodes, debounce,
+} from './layoutStore';
 import { stateToReactFlow, topLevelStorePaths } from './convert';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { RunPanel } from './panels/RunPanel';
@@ -113,15 +117,27 @@ export default function App() {
     return () => { cancelled = true; };
   }, [compositeId, state]);
 
+  // Debounced save of current node positions to localStorage. Built once;
+  // stable across re-renders. The callback closes over `compositeId` via the
+  // effect below that reads the latest nodes.
+  const debouncedPersistRef = useRef<((id: string, positions: ReturnType<typeof positionsFromNodes>) => void) | null>(null);
+  if (!debouncedPersistRef.current) {
+    debouncedPersistRef.current = debounce(
+      (id: string, positions: ReturnType<typeof positionsFromNodes>) => saveLayout(id, positions),
+      250,
+    );
+  }
+
   // (Re)generate nodes + edges whenever the composite state OR the set of
-  // collapsed groups changes. This DOES reset any manual drag positions on
-  // the affected branch, which is acceptable for v1.
+  // collapsed groups changes. Saved positions take precedence over the
+  // ELK-computed positions — drags survive page reloads and collapse/expand.
   useEffect(() => {
     if (!state) {
       setNodes([]);
       setEdges([]);
       return;
     }
+    let cancelled = false;
     const raw = stateToReactFlow(state);
 
     const isHidden = (n: any) => {
@@ -142,10 +158,57 @@ export default function App() {
     const visibleEdges = raw.edges.filter(
       (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
     );
-    const laidNodes = applyLayout(visibleNodes as any, visibleEdges as any);
-    setNodes(laidNodes as any);
-    setEdges(visibleEdges as any);
-  }, [state, collapsed, setNodes, setEdges]);
+
+    (async () => {
+      const saved = loadLayout(compositeId);
+      const laid = await applyLayout(visibleNodes as any, visibleEdges as any);
+      const withSaved = applySavedPositions(laid as any, saved);
+      if (cancelled) return;
+      setNodes(withSaved as any);
+      setEdges(visibleEdges as any);
+    })();
+
+    return () => { cancelled = true; };
+  }, [state, collapsed, compositeId, setNodes, setEdges]);
+
+  // Persist node positions on every change. The layout effect itself sets
+  // node positions; we save those too so the layout is "pinned" the first
+  // time a composite renders. Subsequent drags update the same store.
+  useEffect(() => {
+    if (!compositeId || nodes.length === 0) return;
+    debouncedPersistRef.current?.(compositeId, positionsFromNodes(nodes as any));
+  }, [nodes, compositeId]);
+
+  const handleResetLayout = useCallback(() => {
+    if (!compositeId) return;
+    clearLayout(compositeId);
+    // Force a re-layout by bumping a dependency. Simplest: clear nodes so the
+    // layout effect sees `!state` is false but `nodes.length === 0`, then on
+    // the next state-driven tick it lays out fresh. Cleaner: just toggle
+    // collapsed temporarily — but the effect already re-runs whenever
+    // `compositeId` changes, and we keep `compositeId` stable. So instead,
+    // we directly invoke the layout pipeline here.
+    (async () => {
+      const raw = stateToReactFlow(state);
+      const isHidden = (n: any) => {
+        const path: string[] = n.data?.path ?? [];
+        for (let i = 1; i < path.length; i++) {
+          if (collapsed.has(path.slice(0, i).join('.'))) return true;
+        }
+        return false;
+      };
+      const visibleNodes = raw.nodes.filter((n) => !isHidden(n)).map((n) =>
+        collapsed.has(n.id) ? { ...n, data: { ...n.data, isCollapsed: true } as any } : n,
+      );
+      const visibleIds = new Set(visibleNodes.map((n) => n.id));
+      const visibleEdges = raw.edges.filter(
+        (e) => visibleIds.has(e.source) && visibleIds.has(e.target),
+      );
+      const laid = await applyLayout(visibleNodes as any, visibleEdges as any);
+      setNodes(laid as any);
+      setEdges(visibleEdges as any);
+    })();
+  }, [compositeId, state, collapsed, setNodes, setEdges]);
 
   const handleNodeClick = useCallback((_: any, node: any) => {
     const payload = {
@@ -271,6 +334,20 @@ export default function App() {
             position: 'absolute', inset: 0,
             display: tab === 'view' ? 'block' : 'none',
           }}>
+            {/* Reset layout button — top-right of the View tab. Wipes the saved
+                layout for the current composite and re-runs auto-layout. */}
+            <button
+              onClick={handleResetLayout}
+              title="Discard saved positions for this composite and re-run auto-layout"
+              style={{
+                position: 'absolute', top: 8, right: 8, zIndex: 10,
+                padding: '4px 10px', fontSize: 12,
+                background: '#fff', border: '1px solid #d1d5db',
+                borderRadius: 4, cursor: 'pointer', color: '#374151',
+              }}
+            >
+              Reset layout
+            </button>
             <EmitContext.Provider value={emitSet}>
               <ReactFlow
                 nodes={nodes}

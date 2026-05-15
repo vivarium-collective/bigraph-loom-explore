@@ -1,6 +1,7 @@
 // src/convert.ts — composite-state → React Flow nodes + edges.
 // Data shapes match ProcessNodeData and StoreNodeData from src/types.ts.
 
+import { MarkerType } from '@xyflow/react';
 import type { StoreNodeData, ProcessNodeData } from './types';
 
 type RFNode =
@@ -17,8 +18,13 @@ type RFEdge = {
   label?: string;
   animated?: boolean;
   style?: Record<string, string | number>;
+  markerEnd?: { type: MarkerType; width?: number; height?: number; color?: string };
   data?: { edgeType: 'input' | 'output' | 'bidirectional' | 'place' };
 };
+
+/** Arrowhead used on directional wires (input + output edges).
+ *  Place edges stay un-arrowed — they're nesting relationships, not flow. */
+const WIRE_ARROW = { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#475569' };
 
 /**
  * Top-level store keys of a composite state — every key whose node is not a
@@ -112,6 +118,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           label: port,
           animated: false,
           style: { strokeDasharray: '5,5' },  // wire convention: dashed
+          markerEnd: WIRE_ARROW,       // arrow at the process's input port
           data: { edgeType: 'input' },
         });
       }
@@ -129,6 +136,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           label: port,
           animated: false,
           style: { strokeDasharray: '5,5' },  // wire convention: dashed
+          markerEnd: WIRE_ARROW,       // arrow at the store's incoming side
           data: { edgeType: 'output' },
         });
       }
