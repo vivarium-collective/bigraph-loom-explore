@@ -3,7 +3,7 @@
 export type CompositeLoadMsg = {
   type: 'composite:load';
   state: any;
-  metadata?: { name?: string; context?: string; id?: string };
+  metadata?: { name?: string; library?: string; context?: string; id?: string };
 };
 
 export type ExploreReadyMsg = { type: 'explore:ready' };

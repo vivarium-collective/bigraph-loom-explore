@@ -8,8 +8,9 @@ import '@xyflow/react/dist/style.css';
 // ProcessNode and StoreNode are default exports from the loom node modules
 import ProcessNode from './nodes/ProcessNode';
 import StoreNode from './nodes/StoreNode';
+import FloatingStoreEdge from './edges/FloatingStoreEdge';
 import { applyLayout } from './layout';
-import { stateToReactFlow } from './convert';
+import { stateToReactFlow, topLevelStorePaths } from './convert';
 import { InspectorPanel } from './panels/InspectorPanel';
 import { RunPanel } from './panels/RunPanel';
 import { DocumentPanel } from './panels/DocumentPanel';
@@ -21,6 +22,7 @@ import type { ExploreInspectMsg } from './api';
 
 // applyLayout(nodes, edges) → Node[] (returns nodes array directly)
 const NODE_TYPES = { process: ProcessNode, store: StoreNode };
+const EDGE_TYPES = { floating: FloatingStoreEdge };
 
 type TabId = 'view' | 'run' | 'document';
 
@@ -30,7 +32,10 @@ export default function App() {
   // Collapsed group-node ids — children of these nodes are filtered out of the graph.
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // Explicit-emit store paths (joined by '/'). Descendants inherit emission.
-  const [emitSet, setEmitSet] = useState<Set<string>>(new Set());
+  // Seeded with every top-level store so all states emit by default.
+  const [emitSet, setEmitSet] = useState<Set<string>>(
+    () => new Set(topLevelStorePaths(decodeUrlComposite())),
+  );
   const [tab, setTab] = useState<TabId>('view');
   const [compositeId, setCompositeId] = useState<string | null>(() => {
     // Bootstrap from URL query if present (for popups deep-linked with ?id=)
@@ -38,6 +43,9 @@ export default function App() {
     return p.get('id');
   });
   const [runContext, setRunContext] = useState<string>('');
+  // Display metadata for the top bar — composite name + the library it's from.
+  const [name, setName] = useState<string | null>(null);
+  const [library, setLibrary] = useState<string | null>(null);
   const readyFiredRef = useRef(false);
 
   // Use React Flow's controlled-state hooks so drag changes persist across
@@ -52,9 +60,15 @@ export default function App() {
     const off = onCompositeLoad((msg) => {
       setState(msg.state);
       setCollapsed(new Set());  // reset folding when a new composite loads
-      setEmitSet(new Set());    // reset emit selection when a new composite loads
+      // All states emit by default: seed with every top-level store and
+      // broadcast so the dashboard's run-emit selection stays in sync.
+      const seeded = new Set(topLevelStorePaths(msg.state));
+      setEmitSet(seeded);
+      postEmitChanged([...seeded].sort());
       if (msg.metadata?.id) setCompositeId(msg.metadata.id);
       setRunContext(msg.metadata?.context || '');
+      setName(msg.metadata?.name ?? null);
+      setLibrary(msg.metadata?.library ?? null);
     });
     if (!readyFiredRef.current) {
       readyFiredRef.current = true;
@@ -74,7 +88,10 @@ export default function App() {
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return;
-        if (data?.state && !state) setState(data.state);
+        if (data?.state && !state) {
+          setState(data.state);
+          setEmitSet(new Set(topLevelStorePaths(data.state)));
+        }
       })
       .catch(() => { /* fall through to postMessage path */ });
     return () => { cancelled = true; };
@@ -183,6 +200,23 @@ export default function App() {
           background: '#fff',
           flex: '0 0 auto',
         }}>
+          {(name || compositeId) && (
+            <span style={{
+              display: 'flex', alignItems: 'baseline', gap: 6,
+              marginRight: 8, paddingRight: 16,
+              borderRight: '1px solid #e5e7eb',
+            }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
+                {name || compositeId}
+              </span>
+              {library && (
+                <>
+                  <span style={{ color: '#d1d5db' }}>·</span>
+                  <span style={{ fontSize: 13, color: '#6b7280' }}>{library}</span>
+                </>
+              )}
+            </span>
+          )}
           {tabs.map((t) => (
             <button
               key={t}
@@ -215,6 +249,7 @@ export default function App() {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 nodeTypes={NODE_TYPES}
+                edgeTypes={EDGE_TYPES}
                 onNodeClick={handleNodeClick}
                 onNodeDoubleClick={handleNodeDoubleClick}
                 fitView

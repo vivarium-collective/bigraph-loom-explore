@@ -11,6 +11,7 @@ type RFEdge = {
   id: string;
   source: string;
   target: string;
+  type?: string;
   sourceHandle?: string;
   targetHandle?: string;
   label?: string;
@@ -18,6 +19,24 @@ type RFEdge = {
   style?: Record<string, string | number>;
   data?: { edgeType: 'input' | 'output' | 'bidirectional' | 'place' };
 };
+
+/**
+ * Top-level store keys of a composite state — every key whose node is not a
+ * process/step. Mirrors the dashboard's `all_store_paths`; used to seed the
+ * View tab's emit selection so all states emit by default.
+ */
+export function topLevelStorePaths(state: any): string[] {
+  const root = state?.state ?? state ?? {};
+  return Object.entries(root)
+    .filter(([, v]) => {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        const t = (v as { _type?: string })._type;
+        return t !== 'process' && t !== 'step';
+      }
+      return true;  // scalar leaf — a store
+    })
+    .map(([k]) => k);
+}
 
 export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[] } {
   const nodes: RFNode[] = [];
@@ -87,6 +106,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           id: `${id}--in--${port}`,
           source: tid,
           target: id,
+          type: 'floating',           // store end attaches at nearest circle point
           sourceHandle: 'left-out',   // store's left handle
           targetHandle: port,          // process's left input port
           label: port,
@@ -103,6 +123,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           id: `${id}--out--${port}`,
           source: id,
           target: tid,
+          type: 'floating',           // store end attaches at nearest circle point
           sourceHandle: port,          // process's right output port
           targetHandle: 'right-in',    // store's right handle
           label: port,
