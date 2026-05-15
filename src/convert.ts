@@ -44,7 +44,7 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
       return;
     }
 
-    if (node._type === 'process') {
+    if (node._type === 'process' || node._type === 'step') {
       const id = pathKey(path);
       const inputPorts = Object.keys(node.inputs ?? {});
       const outputPorts = Object.keys(node.outputs ?? {});
@@ -79,30 +79,32 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
         position: { x: 0, y: 0 },
       });
 
-      // Wire edges: inputs arrive at this process node from store nodes
+      // Wire edges: inputs arrive at this process node from store nodes.
+      // Convention: input wires leave the store's LEFT side and enter the process's LEFT side.
       for (const [port, target] of Object.entries(node.inputs ?? {})) {
         const tid = Array.isArray(target) ? (target as string[]).join('.') : String(target);
         edges.push({
           id: `${id}--in--${port}`,
           source: tid,
           target: id,
-          sourceHandle: undefined,
-          targetHandle: port,
+          sourceHandle: 'left-out',   // store's left handle
+          targetHandle: port,          // process's left input port
           label: port,
           animated: false,
           style: { strokeDasharray: '5,5' },  // wire convention: dashed
           data: { edgeType: 'input' },
         });
       }
-      // Wire edges: outputs leave this process node to store nodes
+      // Wire edges: outputs leave this process node to store nodes.
+      // Convention: output wires leave the process's RIGHT side and enter the store's RIGHT side.
       for (const [port, target] of Object.entries(node.outputs ?? {})) {
         const tid = Array.isArray(target) ? (target as string[]).join('.') : String(target);
         edges.push({
           id: `${id}--out--${port}`,
           source: id,
           target: tid,
-          sourceHandle: port,
-          targetHandle: undefined,
+          sourceHandle: port,          // process's right output port
+          targetHandle: 'right-in',    // store's right handle
           label: port,
           animated: false,
           style: { strokeDasharray: '5,5' },  // wire convention: dashed
@@ -157,6 +159,8 @@ export function stateToReactFlow(state: any): { nodes: RFNode[]; edges: RFEdge[]
           id: `place--${id}--${childId}`,
           source: id,
           target: childId,
+          sourceHandle: 'bottom-place',  // parent store's bottom handle
+          targetHandle: 'top-place',     // child store's top handle
           animated: false,
           style: { strokeWidth: 2.5 },  // place convention: thick solid
           data: { edgeType: 'place' },

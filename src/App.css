@@ -190,6 +190,22 @@ body {
 
 .process-node:hover { border-color: #4f46e5; }
 
+/* Step kind colors — distinguish emitters and visualizations from regular processes.
+ * Classification is driven by ProcessNode._classifyStep based on the node's address. */
+.process-node-emitter {
+  border-color: #f97316;            /* orange-500 */
+  background: #fff7ed;              /* orange-50 */
+}
+.process-node-emitter:hover { border-color: #ea580c; }
+.process-node-emitter .process-type { color: #c2410c; }
+
+.process-node-visualization {
+  border-color: #a855f7;            /* purple-500 */
+  background: #faf5ff;              /* purple-50 */
+}
+.process-node-visualization:hover { border-color: #9333ea; }
+.process-node-visualization .process-type { color: #7e22ce; }
+
 .process-body {
   display: flex;
   flex-direction: column;
