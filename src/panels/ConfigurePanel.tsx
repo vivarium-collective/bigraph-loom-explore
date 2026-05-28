@@ -1,13 +1,22 @@
-// src/panels/ConfigurePanel.tsx — parameter form for the Configure tab.
+// src/panels/ConfigurePanel.tsx — Configure tab body.
 //
-// Renders one input per declared parameter (string/int/float/bool/list[string]),
-// pre-filled with the current override (or the parameter's default).
-// Clicking Apply re-resolves the composite via /api/composite-resolve so the
-// View tab refreshes with the new state, and the new overrides are passed back
-// to the parent (App) so Run picks them up.
+// Dispatches on the currently-selected compute backend:
+//   - kind === 'local' (or unknown): render the recipe-`parameters` form
+//     (one input per declared parameter), so users can override defaults and
+//     re-resolve the composite via /api/composite-resolve.
+//   - kind === 'hpc': render <HpcConfigForm /> which round-trips through
+//     /api/composite/<id>/hpc-config and saves the merged result back into
+//     the composite doc.
+//
+// ConfigurePanel itself is a thin dispatcher with no hooks; the two
+// backend-specific bodies own their own state. Keeping the dispatcher
+// hook-free avoids Rules-of-Hooks violations when the user changes backend
+// mid-session.
 import { useEffect, useState } from 'react';
 import type { ParameterDecl } from '../api';
 import { parseListString, formatListString } from '../parsers';
+import { useBackend } from '../BackendContext';
+import { HpcConfigForm } from './HpcConfigForm';
 
 export interface ConfigurePanelProps {
   compositeId: string | null;
@@ -15,6 +24,16 @@ export interface ConfigurePanelProps {
   overrides: Record<string, unknown>;
   onApplied: (overrides: Record<string, unknown>, state: unknown) => void;
 }
+
+export function ConfigurePanel(props: ConfigurePanelProps) {
+  const { selected } = useBackend();
+  if (selected?.kind === 'hpc') {
+    return <HpcConfigForm compositeId={props.compositeId} />;
+  }
+  return <LocalParametersForm {...props} />;
+}
+
+// --- Local backend: recipe `parameters` form (unchanged from pre-Phase-D) -
 
 type FormValue = string | number | boolean;
 
@@ -44,11 +63,9 @@ function _castFormValue(pdef: ParameterDecl, raw: FormValue): unknown {
   return String(raw);
 }
 
-export function ConfigurePanel({
+function LocalParametersForm({
   compositeId, parameters, overrides, onApplied,
 }: ConfigurePanelProps) {
-  // Local form values, keyed by parameter name. Reset whenever the upstream
-  // parameter set or current overrides change (i.e. a new composite loaded).
   const [values, setValues] = useState<Record<string, FormValue>>(() =>
     Object.fromEntries(
       Object.entries(parameters).map(([k, pdef]) => [k, _initialValue(pdef, overrides[k])])

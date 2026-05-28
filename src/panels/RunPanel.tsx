@@ -1,9 +1,22 @@
+// src/panels/RunPanel.tsx — Run tab body.
+//
+// Thin dispatcher on the currently-selected compute backend:
+//   - kind === 'local' (or unknown): render the in-process LocalRunPanel
+//     (start-then-poll against /api/composite-test-run + trajectory readouts).
+//   - kind === 'hpc': render <HpcRunPanel /> which submits SLURM jobs and
+//     tails the sbatch log.
+//
+// Like ConfigurePanel, the dispatcher itself owns no hooks; the two
+// backend-specific bodies hold their own state, so switching backends
+// mid-session doesn't violate the Rules of Hooks.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type React from 'react';
 import {
   postRunComplete, startRun, fetchRunStatus, fetchRunTrajectory,
   type RunStatus,
 } from '../api';
+import { useBackend } from '../BackendContext';
+import { HpcRunPanel } from './HpcRunPanel';
 
 type TrajectoryRow = { step: number; time?: number; state: Record<string, unknown> };
 
@@ -28,6 +41,14 @@ const ACTIVE_RUN_KEY = 'loom-explore:active-run';
 const POLL_MS = 1500;
 
 export function RunPanel(props: RunPanelProps) {
+  const { selected } = useBackend();
+  if (selected?.kind === 'hpc') {
+    return <HpcRunPanel compositeId={props.compositeId} />;
+  }
+  return <LocalRunPanel {...props} />;
+}
+
+function LocalRunPanel(props: RunPanelProps) {
   const [steps, setSteps] = useState(props.defaultSteps ?? 5);
   // When a new composite loads with a different defaultSteps, re-seed the
   // input so the user sees the composite's recommended run length without

@@ -193,3 +193,103 @@ export async function fetchBackendStatus(id: string): Promise<BackendStatus> {
   if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
   return body as BackendStatus;
 }
+
+// --- HPC run-config (per-composite) --------------------------------------
+
+/** Per-composite HPC run defaults persisted as the `hpc_run_config` block of
+ *  the composite doc. Field set mirrors the legacy dashboard HPC form. All
+ *  fields are optional — the server merges (not replaces) so partial saves
+ *  preserve other keys. */
+export interface HpcRunConfig {
+  backend?: string;        // e.g. "v2ecoli"
+  n_cells?: number;
+  duration_min?: number;
+  seed?: number;
+  cpus?: number;
+  mem_gb?: number;
+  time_limit_min?: number;
+  outdir?: string;         // ParCa output directory
+  cache_dir?: string;      // Colony cache directory (typically <outdir>/cache)
+}
+
+export async function fetchHpcConfig(specId: string): Promise<HpcRunConfig> {
+  const r = await fetch(`/api/composite/${encodeURIComponent(specId)}/hpc-config`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return (body.hpc_run_config || {}) as HpcRunConfig;
+}
+
+export async function saveHpcConfig(specId: string, cfg: HpcRunConfig): Promise<HpcRunConfig> {
+  const r = await fetch(`/api/composite/${encodeURIComponent(specId)}/hpc-config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hpc_run_config: cfg }),
+  });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return (body.hpc_run_config || {}) as HpcRunConfig;
+}
+
+// --- HPC run submission + polling ----------------------------------------
+
+export interface HpcRunResources {
+  cpus: number;
+  mem_gb: number;
+  time_min: number;
+}
+
+export interface HpcRunSubmitArgs extends HpcRunResources {
+  command: string;
+  composite_id: string;
+}
+
+export interface HpcRunSubmitResponse {
+  run_id: string;
+  slurm_job_id: number | string;
+  log_path?: string;
+}
+
+export interface HpcRunStatus {
+  state: string;           // e.g. PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT
+  slurm_job_id?: number | string;
+  [extra: string]: unknown;
+}
+
+export interface HpcRunLog {
+  log: string;
+  run_id: string;
+}
+
+/** Submit a SLURM job to ``/api/hpc/<workload>/run``. ``workload`` is the
+ *  workload-image identifier (e.g. ``v2ecoli``), not the cluster id. The
+ *  cluster is resolved from the workspace's hpc settings server-side. */
+export async function submitHpcRun(
+  workload: string, args: HpcRunSubmitArgs,
+): Promise<HpcRunSubmitResponse> {
+  const r = await fetch(`/api/hpc/${encodeURIComponent(workload)}/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as HpcRunSubmitResponse;
+}
+
+export async function fetchHpcRunStatus(
+  workload: string, slurmJobId: number | string,
+): Promise<HpcRunStatus> {
+  const r = await fetch(`/api/hpc/${encodeURIComponent(workload)}/run/${slurmJobId}`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as HpcRunStatus;
+}
+
+export async function fetchHpcRunLog(
+  workload: string, runId: string,
+): Promise<HpcRunLog> {
+  const r = await fetch(`/api/hpc/${encodeURIComponent(workload)}/run/${encodeURIComponent(runId)}/log`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as HpcRunLog;
+}
