@@ -22,6 +22,8 @@ import { VisualizationsPanel } from './panels/VisualizationsPanel';
 import { DocumentPanel } from './panels/DocumentPanel';
 import { ConfigurePanel } from './panels/ConfigurePanel';
 import { EmitContext } from './EmitContext';
+import { BackendProvider } from './BackendContext';
+import { BackendSelector } from './BackendSelector';
 import {
   postReady, postInspect, postEmitChanged, onCompositeLoad, decodeUrlComposite,
 } from './api';
@@ -282,6 +284,7 @@ export default function App() {
   const tabs: TabId[] = ['view', 'configure', 'run', 'results', 'visualizations', 'document'];
 
   return (
+    <BackendProvider>
     <ReactFlowProvider>
       <div style={{ display: 'flex', flexDirection: 'column', width: '100vw', height: '100vh' }}>
         {/* Thin breadcrumb header: composite name + library.
@@ -329,6 +332,9 @@ export default function App() {
               {t}
             </button>
           ))}
+          <div style={{ marginLeft: 'auto' }}>
+            <BackendSelector />
+          </div>
         </nav>
 
         <div style={{ flex: 1, overflow: 'auto', position: 'relative' }}>
@@ -419,5 +425,6 @@ export default function App() {
         </div>
       </div>
     </ReactFlowProvider>
+    </BackendProvider>
   );
 }

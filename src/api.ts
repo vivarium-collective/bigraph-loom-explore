@@ -157,3 +157,39 @@ export async function fetchRunTrajectory(runId: string): Promise<RunTrajectory> 
   if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
   return body as RunTrajectory;
 }
+
+// --- Compute backends ----------------------------------------------------
+
+export type BackendKind = 'local' | 'hpc' | 'unknown';
+
+export interface ComputeBackend {
+  id: string;
+  label: string;
+  description: string;
+  kind: BackendKind;
+}
+
+/** Uniform connectivity-probe shape returned by `/api/compute-backends/<id>/status`. */
+export interface BackendStatus {
+  ok: boolean;
+  kind: BackendKind;
+  message?: string;
+  detail?: Record<string, unknown>;
+  missing_fields?: string[];
+}
+
+/** List the dashboard's registered compute backends. */
+export async function fetchComputeBackends(): Promise<ComputeBackend[]> {
+  const r = await fetch('/api/compute-backends');
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return (body.backends || []) as ComputeBackend[];
+}
+
+/** Probe one backend's connectivity. */
+export async function fetchBackendStatus(id: string): Promise<BackendStatus> {
+  const r = await fetch(`/api/compute-backends/${encodeURIComponent(id)}/status`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as BackendStatus;
+}
