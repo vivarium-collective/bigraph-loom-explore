@@ -293,3 +293,59 @@ export async function fetchHpcRunLog(
   if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
   return body as HpcRunLog;
 }
+
+// --- Composite-scoped HPC run records ------------------------------------
+
+/** Sidecar metadata written by the server when an HPC job is submitted for
+ *  a given composite. Stored under ``WORKSPACE/.pbg/hpc/run-<id>.meta.json``
+ *  and listed by ``/api/composite/<id>/runs``. */
+export interface CompositeHpcRunMeta {
+  run_id: string;
+  slurm_job_id: number | string;
+  log_path?: string;
+  composite_id: string;
+  backend: string;        // workload-image id (e.g. v2ecoli)
+  command: string;
+  submitted_at: string;   // ISO 8601, UTC
+  cpus?: number;
+  mem_gb?: number;
+  time_min?: number;
+}
+
+/** Terminal-state JSON block parsed from the log tail by the server. Shape
+ *  is task-specific (Colony emits ``n_cells_initial/final``, ``duration_s``,
+ *  ``wall_seconds``, ``peak_rss_mb``, ``n_division_events``; ParCa emits
+ *  fewer keys). Treated opaquely here; the UI renders whichever keys it
+ *  knows about. */
+export type CompositeRunSummary = Record<string, unknown> & {
+  status?: string;
+  n_cells_initial?: number;
+  n_cells_final?: number;
+  duration_s?: number;
+  wall_seconds?: number;
+  peak_rss_mb?: number;
+  n_division_events?: number;
+};
+
+export interface CompositeRunSummaryResponse {
+  summary: CompositeRunSummary | null;
+  meta: CompositeHpcRunMeta;
+}
+
+export async function fetchCompositeHpcRuns(specId: string): Promise<CompositeHpcRunMeta[]> {
+  const r = await fetch(`/api/composite/${encodeURIComponent(specId)}/runs`);
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return (body.runs || []) as CompositeHpcRunMeta[];
+}
+
+export async function fetchCompositeRunSummary(
+  specId: string, runId: string,
+): Promise<CompositeRunSummaryResponse> {
+  const r = await fetch(
+    `/api/composite/${encodeURIComponent(specId)}/runs/${encodeURIComponent(runId)}/summary`
+  );
+  const body = await r.json();
+  if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
+  return body as CompositeRunSummaryResponse;
+}

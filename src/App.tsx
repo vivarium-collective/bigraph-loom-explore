@@ -409,6 +409,7 @@ export default function App() {
           )}
           {tab === 'results' && (
             <ResultsPanel
+              compositeId={compositeId}
               trajectory={trajectory}
               hasRun={trajectory !== null || vizHtml !== null}
             />

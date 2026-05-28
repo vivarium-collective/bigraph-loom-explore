@@ -1,13 +1,22 @@
-// src/panels/ResultsPanel.tsx — emitter results from the most recent run.
+// src/panels/ResultsPanel.tsx — Results tab body.
 //
-// Reads a trajectory (one row per step) and groups it into per-observable
-// time series; each row is expandable to scrub through the captured values.
+// Thin dispatcher on the currently-selected compute backend:
+//   - kind === 'local' (or unknown): render LocalResultsPanel (existing
+//     emitter-trajectory table + per-step scrubber).
+//   - kind === 'hpc': render <HpcResultsPanel /> which lists the composite's
+//     HPC runs, their terminal-state summary, and a tailable log.
+//
+// Like ConfigurePanel and RunPanel, the dispatcher itself owns no hooks; the
+// backend-specific bodies own their own state.
 import { useState } from 'react';
 import { JsonTree } from './JsonNode';
+import { useBackend } from '../BackendContext';
+import { HpcResultsPanel } from './HpcResultsPanel';
 
 type TrajectoryRow = { step: number; time?: number; state: Record<string, unknown> };
 
 export interface ResultsPanelProps {
+  compositeId: string | null;
   trajectory: TrajectoryRow[] | null;  // null = no run yet (or run in flight)
   hasRun: boolean;                     // a completed run exists
 }
@@ -98,7 +107,20 @@ function ObservableRow({ name, entries }: { name: string; entries: any[] }) {
   );
 }
 
-export function ResultsPanel({ trajectory, hasRun }: ResultsPanelProps) {
+export function ResultsPanel(props: ResultsPanelProps) {
+  const { selected } = useBackend();
+  if (selected?.kind === 'hpc') {
+    return <HpcResultsPanel compositeId={props.compositeId} />;
+  }
+  return <LocalResultsPanel trajectory={props.trajectory} hasRun={props.hasRun} />;
+}
+
+function LocalResultsPanel({
+  trajectory, hasRun,
+}: {
+  trajectory: TrajectoryRow[] | null;
+  hasRun: boolean;
+}) {
   const wrap: React.CSSProperties = { padding: 16, fontFamily: 'system-ui, sans-serif' };
 
   if (!trajectory) {
